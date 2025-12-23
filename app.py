@@ -10,7 +10,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'streamline_key_99')
 
 # IMPORTANT: async_mode='eventlet' is required for Render/Gunicorn
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 # --- Progress Callback ---
 def progress_check(stream, chunk, bytes_remaining):
