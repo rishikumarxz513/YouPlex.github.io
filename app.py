@@ -1,12 +1,16 @@
+import os
+import shutil
 from flask import Flask, after_this_request, render_template, request, send_file, jsonify
 from flask_socketio import SocketIO
 from pytubefix import YouTube, Playlist, Search
-import os
-import threading
 
+# Initialize Flask
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'streamline_key_99'
-socketio = SocketIO(app)
+# Use an environment variable for security, fallback to default if not found
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'streamline_key_99')
+
+# IMPORTANT: async_mode='eventlet' is required for Render/Gunicorn
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # --- Progress Callback ---
 def progress_check(stream, chunk, bytes_remaining):
@@ -44,31 +48,42 @@ def captions_page():
 @app.route('/search', methods=['POST'])
 def handle_search():
     query = request.form.get('query')
-    results = Search(query)
-    video_list = []
-    for video in results.videos[:6]:
-        video_list.append({
-            'title': video.title,
-            'url': video.watch_url,
-            'thumbnail': video.thumbnail_url,
-            'duration': video.length
-        })
-    return jsonify(video_list)
+    try:
+        results = Search(query)
+        video_list = []
+        # Limiting to 6 to prevent timeouts
+        for video in results.videos[:6]:
+            video_list.append({
+                'title': video.title,
+                'url': video.watch_url,
+                'thumbnail': video.thumbnail_url,
+                'duration': video.length
+            })
+        return jsonify(video_list)
+    except Exception as e:
+        return jsonify({'error': str(e)})
 
 @app.route('/get_file/<filename>')
 def get_file(filename):
+    """Delivers the file (video, audio, or zip) and deletes it afterward."""
     path = os.path.join("downloads", filename)
+    
     @after_this_request
     def cleanup(response):
         try:
             if os.path.exists(path):
                 os.remove(path)
+                print(f"Deleted file: {filename}")
         except Exception as e:
-            print(f"Cleanup error: {e}")
+            print(f"Error cleaning up file {filename}: {e}")
         return response
-    return send_file(path, as_attachment=True)
 
-# --- WebSocket Events (Progress Bar Enabled) ---
+    if os.path.exists(path):
+        return send_file(path, as_attachment=True)
+    else:
+        return "File not found or expired.", 404
+
+# --- WebSocket Events ---
 @socketio.on('start_video_download')
 def handle_video(data):
     try:
@@ -94,76 +109,71 @@ def handle_playlist(data):
     try:
         pl = Playlist(data['url'])
         socketio.emit('playlist_info', {'title': pl.title, 'count': len(pl.videos)})
+        
+        # Create a specific folder for this playlist
+        safe_title = "".join([c for c in pl.title if c.isalnum() or c in (' ', '_')]).rstrip()
+        playlist_folder = os.path.join("downloads", safe_title)
+        
+        if not os.path.exists(playlist_folder):
+            os.makedirs(playlist_folder)
+
         for index, video in enumerate(pl.videos):
             socketio.emit('next_video', {'index': index, 'title': video.title})
-            video.streams.get_highest_resolution().download(output_path=f"downloads/{pl.title}/")
+            try:
+                video.streams.get_highest_resolution().download(output_path=playlist_folder)
+            except Exception as e:
+                print(f"Skipped video due to error: {e}")
             socketio.emit('video_done', {'index': index})
-        socketio.emit('playlist_complete', {'folder': pl.title})
+
+        # ZIP the folder
+        socketio.emit('status', {'message': 'Zipping files...'})
+        zip_filename = f"{safe_title}.zip"
+        zip_path = os.path.join("downloads", zip_filename)
+        
+        # Create zip file
+        shutil.make_archive(os.path.join("downloads", safe_title), 'zip', playlist_folder)
+        
+        # Remove the raw folder to save space immediately
+        shutil.rmtree(playlist_folder)
+        
+        socketio.emit('playlist_complete', {'file_url': f'/get_file/{zip_filename}'})
+
     except Exception as e:
         socketio.emit('error', {'message': str(e)})
 
 @socketio.on('fetch_captions')
 def handle_captions(data):
-    """View Available Subtitles"""
     try:
         yt = YouTube(data['url'])
-        # View Available Subtitles: yt.captions
         tracks = [{'code': code, 'name': cap.name} for code, cap in yt.captions.items()]
-        
-        # We emit the list of available tracks to the frontend
         socketio.emit('captions_list', {'title': yt.title, 'tracks': tracks})
     except Exception as e:
         socketio.emit('error', {'message': str(e)})
 
 @socketio.on('download_caption')
 def handle_cap_dl(data):
-    """Print and Save Subtitle Tracks"""
     try:
         yt = YouTube(data['url'])
-        # Access specific track: yt.captions['code']
         caption = yt.captions[data['code']]
         
-        # Generate SRT content: caption.generate_srt_captions()
+        # Fix: save_captions in pytubefix/pytube expects a filename without path in some versions, 
+        # but to be safe we write manually to control the path perfectly.
         srt_content = caption.generate_srt_captions()
         
-        # Prepare the file name and path
         safe_title = "".join([c for c in yt.title if c.isalnum() or c in (' ', '_')]).rstrip()
         filename = f"{safe_title}_{data['code']}.srt".replace(" ", "_")
         path = os.path.join("downloads", filename)
 
-        # Save Subtitles to a Text/SRT File: caption.save_captions(filename)
-        # Using the built-in save_captions method from pytubefix
-        caption.save_captions(path)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(srt_content)
         
-        # Inform the frontend that the file is ready for the user to download
         socketio.emit('caption_ready', {'file_url': f'/get_file/{filename}'})
     except Exception as e:
         socketio.emit('error', {'message': str(e)})
 
-@app.route('/get_file/<filename>')
-def deliver_and_cleanup(filename):
-    """Sends the file to the user and deletes it from the server immediately after."""
-    # Construct the path to the downloads folder
-    path = os.path.join("downloads", filename)
-    
-    # This part handles the automatic deletion after the user receives the file
-    @after_this_request
-    def remove_file(response):
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-                print(f"Successfully cleaned up: {filename}")
-        except Exception as e:
-            app.logger.error(f"Error during server cleanup: {e}")
-        return response
-
-    # Check if the file actually exists before sending
-    if os.path.exists(path):
-        return send_file(path, as_attachment=True)
-    else:
-        return "File not found or already deleted.", 404
-
 if __name__ == '__main__':
+    # Ensure downloads directory exists
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    # Use standard run for local, Gunicorn handles prod
+    socketio.run(app, debug=True)
