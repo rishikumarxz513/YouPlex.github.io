@@ -20,7 +20,7 @@ cd YouPlex.github.io
 pip install -r requirements.txt
 ```
 
-#Usage
+Usage
 
 To start the local web server, run the app.py file.
 
@@ -44,7 +44,7 @@ YouPlex/
 ├── app.py               # Main application logic
 └── requirements.txt     # Python dependencies
 ```
-#Requirements
+Requirements
 
 Ensure your requirements.txt includes the following libraries:
 
