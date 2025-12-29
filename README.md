@@ -18,3 +18,32 @@ Use the package manager [pip](https://pip.pypa.io/en/stable/) to install the req
 git clone [https://github.com/rishikumarxz513/YouPlex.github.io.git](https://github.com/rishikumarxz513/YouPlex.github.io.git)
 cd YouPlex.github.io
 pip install -r requirements.txt
+```
+##Usage
+To start the local web server, run the app.py file.
+```bash
+python app.py
+```
+Once the server is running, open your web browser and navigate to: http://127.0.0.1:5000 or localhost:5000
+
+```bash
+YouPlex/
+├── downloads/           # Destination folder for downloaded media
+├── static/
+│   └── style.css        # Frontend styling
+├── templates/           # HTML Interfaces
+│   ├── audio.html
+│   ├── captions.html
+│   ├── index.html
+│   ├── playlist.html
+│   └── video.html
+├── app.py               # Main application logic
+└── requirements.txt     # Python dependencies
+```
+##Requirements
+Ensure your requirements.txt includes the following libraries:
+```bash
+Flask
+Flask-SocketIO
+pytubefix
+```
