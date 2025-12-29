@@ -19,11 +19,15 @@ git clone [https://github.com/rishikumarxz513/YouPlex.github.io.git](https://git
 cd YouPlex.github.io
 pip install -r requirements.txt
 ```
-##Usage
+
+#Usage
+
 To start the local web server, run the app.py file.
+
 ```bash
 python app.py
 ```
+
 Once the server is running, open your web browser and navigate to: http://127.0.0.1:5000 or localhost:5000
 
 ```bash
@@ -40,8 +44,10 @@ YouPlex/
 ├── app.py               # Main application logic
 └── requirements.txt     # Python dependencies
 ```
-##Requirements
+#Requirements
+
 Ensure your requirements.txt includes the following libraries:
+
 ```bash
 Flask
 Flask-SocketIO
