@@ -1,7 +1,3 @@
 Flask
 Flask-SocketIO
-gevent
-gevent-websocket
-gunicorn
 pytubefix
-youtube-search-python
